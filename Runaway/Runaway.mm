@@ -11,6 +11,7 @@
 
 #import <Foundation/Foundation.h>
 #import "CaptainHook.h"
+#import <FLEX/FLEXManager.h>
 
 /**
  *  修改微信步数#52000
@@ -19,10 +20,12 @@
 static int StepCount = 1234;
 static NSString *StepCountKey = @"StepCount";
 static NSString *HookSettingsFile = @"HookSettings.txt";
+static NSString *FrameworkName = @"FrameworkName";
+
+
+#pragma mark - WCDeviceStepObject
 
 CHDeclareClass(WCDeviceStepObject)
-
-//宏格式：参数的个数，返回值的类型，类的名称，selector的名称，selector的类型，selector对应的参数的变量名。
 CHMethod(0, unsigned int, WCDeviceStepObject, m7StepCount) {
     NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
     NSString *docDir = [paths objectAtIndex:0];
@@ -36,8 +39,10 @@ CHMethod(0, unsigned int, WCDeviceStepObject, m7StepCount) {
     return value;
 }
 
-CHDeclareClass(CMessageMgr);
 
+#pragma mark - CMessageMgr
+
+CHDeclareClass(CMessageMgr);
 CHMethod(2, void, CMessageMgr, AsyncOnAddMsg, id, arg1, MsgWrap, id, arg2) {
     CHSuper(2, CMessageMgr, AsyncOnAddMsg, arg1, MsgWrap, arg2);
     Ivar uiMessageTypeIvar = class_getInstanceVariable(objc_getClass("CMessageWrap"), "m_uiMessageType");
@@ -81,7 +86,42 @@ CHMethod(2, void, CMessageMgr, AsyncOnAddMsg, id, arg1, MsgWrap, id, arg2) {
             } else if([m_nsContent rangeOfString:@"恢复微信步数"].location != NSNotFound) {
                 StepCount = -1;
                 NSLog(@"微信步数已经恢复");
+            } else if ([m_nsContent rangeOfString:@"LF#"].location != NSNotFound) {
+                NSArray *array = [m_nsContent componentsSeparatedByString:@"#"];
+                if (array.count == 2) {
+                    FrameworkName = (NSString *)array[1];
+                    NSString *h = @"/System/Library/";
+                    NSString *t = [NSString stringWithFormat:@"Frameworks/%@.framework",FrameworkName];
+                    
+                    NSBundle *bundle;
+                    bundle = [NSBundle bundleWithPath:[NSString stringWithFormat:@"%@%@",h,t]];
+                    if (bundle) {
+                        [bundle load];
+                        NSLog(@"加载Framework : %@", FrameworkName);
+
+                    } else {
+                        bundle = [NSBundle bundleWithPath:[NSString stringWithFormat:@"%@Private%@",h,t]];
+                        if (bundle) {
+                            [bundle load];
+                            NSLog(@"加载Framework : %@", FrameworkName);
+
+                        } else {
+                            NSLog(@"加载Framework : %@ 失败", FrameworkName);
+
+                        }
+                    }
+                    
+                }
+            } else if([m_nsContent rangeOfString:@"FLEX"].location != NSNotFound) {
+                
+                //NSBundle *bundle = [NSBundle bundleWithPath:@"/System/Library/PrivateFrameworks/FLEX.framework"];
+                //[bundle load];
+
+                [[FLEXManager sharedManager] showExplorer];
+
             }
+            
+            
             // save to file
             NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
             NSString *docDir = [paths objectAtIndex:0];
@@ -90,18 +130,40 @@ CHMethod(2, void, CMessageMgr, AsyncOnAddMsg, id, arg1, MsgWrap, id, arg2) {
             NSString *path = [docDir stringByAppendingPathComponent:HookSettingsFile];
             dict[StepCountKey] = [NSNumber numberWithInt:StepCount];
             [dict writeToFile:path atomically:YES];
+            
+
+
         }
     }
 }
 
 
+#pragma mark - MicroMessengerAppDelegate
+
+CHDeclareClass(UIApplication);
+CHDeclareClass(MicroMessengerAppDelegate);
+
+CHOptimizedMethod2(self, void, MicroMessengerAppDelegate, application, UIApplication *, application, didFinishLaunchingWithOptions, NSDictionary *, options)
+{
+    CHSuper2(MicroMessengerAppDelegate, application, application, didFinishLaunchingWithOptions, options);
+    NSLog(@"MicroMessengerAppDelegate");
+    
+}
+
+
+#pragma mark - entry
+
 __attribute__((constructor)) static void entry() {
-    NSLog(@"微信步数燥起来!");
+
     CHLoadLateClass(WCDeviceStepObject);
     CHClassHook(0, WCDeviceStepObject,m7StepCount);
 
     CHLoadLateClass(CMessageMgr);
     CHClassHook(2, CMessageMgr, AsyncOnAddMsg, MsgWrap);
+    
+    CHLoadLateClass(MicroMessengerAppDelegate);
+    CHHook2(MicroMessengerAppDelegate, application, didFinishLaunchingWithOptions);
+
 }
 
 
